@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PR Chat</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        html, body {
+            height: 100%; /* Make sure the html and body take up the full viewport height */
+            margin: 0;   /* Remove default body margins */
+            background-color: #f8f9fa;
+        }
+
+        .chat-container {
+            width: 100%;  /* Take up the full width */
+            height: 100%; /* Take up the full height */
+            background-color: #fff;
+            border-radius: 0; /* Remove border-radius */
+            box-shadow: none; /* Remove box-shadow */
+            overflow: hidden;
+            display: flex;     /* Use flexbox for layout */
+            flex-direction: column; /* Stack header, messages, and input vertically */
+        }
+
+        .chat-header {
+            background-color: #007bff;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;         /* Use flexbox for the header */
+            justify-content: space-between; /* Distribute space between title and stop button */
+            align-items: center;   /* Vertically align items */
+        }
+
+        .chat-header h1 {
+            margin: 0; /* Reset default margin for the heading */
+        }
+
+        .chat-messages {
+            padding: 20px;
+            flex-grow: 1; /* Take up remaining vertical space */
+            overflow-y: scroll;
+            scrollbar-width: thin; /* Firefox */
+            scrollbar-color: #007bff rgba(0, 0, 0, 0.1); /* Firefox */
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px; /* WebKit */
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background-color: #007bff; /* WebKit */
+            border-radius: 3px; /* WebKit */
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background-color: rgba(0, 0, 0, 0.1); /* WebKit */
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 20px;
+            clear: both;
+            word-break: break-word; /* Prevents long words from overflowing */
+        }
+
+        .user-message {
+            background-color: #e2f3ff;
+            float: right;
+            text-align: right;
+            color: #333;
+        }
+
+        .gemini-message {
+            background-color: #f0f0f0;
+            float: left;
+            color: #333;
+        }
+
+        .chat-input {
+            padding: 20px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+        }
+
+        .chat-input input[type="text"] {
+            border: none;
+            border-radius: 25px;
+            padding: 10px 15px;
+            flex-grow: 1;
+            margin-right: 10px;
+            background-color: #f8f9fa;
+        }
+
+        .chat-input button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 25px;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .chat-input button:hover {
+            background-color: #0056b3;
+        }
+
+        #stopButton {
+            background-color: #dc3545; /* Red color */
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #stopButton:hover {
+            background-color: #c82333; /* Darker red on hover */
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>PR Chat</h1>
+          <!-- Stop Button -->
+          <button id="stopButton" onclick="stopChat()">
+              <i class="fas fa-stop-circle"></i> Stop
+          </button>
+        </div>
+
+        <div class="chat-messages" id="chat">
+            <!-- Chat messages will be displayed here -->
+        </div>
+        <div class="chat-input" id="chatForm">
+            <input type="text" id="question" name="question" placeholder="Type your question...">
+            <button type="button" onclick="sendMessage()"><i class="fas fa-paper-plane"></i> Send</button>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        let chatHistory = [];
+
+        $(document).ready(function() {
+            updateChatDisplay();
+        });
+
+        function sendMessage() {
+            const question = document.getElementById('question').value;
+            if (!question) {
+                return;
+            }
+
+            const questionInput = document.getElementById('question');
+            questionInput.disabled = true; // Disable the input
+            const sendButton = document.querySelector('#chatForm button');
+            sendButton.disabled = true; // Disable the button
+
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question })
+            })
+            .then(response => response.json())
+            .then(data => {
+                questionInput.disabled = false; // Re-enable the input
+                sendButton.disabled = false; // Re-enable the button
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    chatHistory = data.chatHistory; // Update chat history
+                    updateChatDisplay();
+                    document.getElementById('question').value = ''; // Clear input
+                }
+            })
+            .catch(error => {
+              questionInput.disabled = false; // Re-enable the input
+              sendButton.disabled = false; // Re-enable the button
+              alert('Network error: ' + error);
+            });
+        }
+
+        function updateChatDisplay() {
+            const chatDiv = document.getElementById('chat');
+            chatDiv.innerHTML = '';
+            chatHistory.forEach(message => {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message', message.sender + '-message'); // Add sender class
+
+                if (message.isHTML) {
+                    messageDiv.innerHTML = message.text;  // Use innerHTML for HTML content
+                } else {
+                    messageDiv.textContent = message.text; // Use textContent for plain text
+                }
+                chatDiv.appendChild(messageDiv);
+            });
+            chatDiv.scrollTop = chatDiv.scrollHeight; // Scroll to bottom
+        }
+          function stopChat() {
+              fetch('/stop', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' }
+              })
+              .then(response => response.json())
+              .then(data => {
+                  if (data.error) {
+                      alert('Error: ' + data.error);
+                  } else {
+                      alert('Chat stopped successfully!');
+                      // Optionally, disable the input and send button after stopping
+                      document.getElementById('question').disabled = true;
+                      document.querySelector('#chatForm button').disabled = true;
+                  }
+              })
+              .catch(error => {
+                  alert('Network error: ' + error);
+              });
+          }
+    </script>
+</body>
+</html>

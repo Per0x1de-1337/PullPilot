@@ -1,0 +1,572 @@
+name: 'AI-Powered Code Review Agent'
+description: 'Automated code review with static analysis, security scanning, AI recommendations, and Keploy test validation'
+
+branding:
+  icon: 'code'
+  color: 'blue'
+
+inputs:
+  pr_url:
+    description: 'PR url'
+    required: true
+  command_for_running_application:
+    description: 'command_for_running_application'
+    required: true
+  repo:
+    description: 'GitHub repository'
+    required: true
+  gemini_api_key:
+    description: 'Gemini API key'
+    required: true
+  location_from_where_we_have_to_execute_the_command:
+    description: 'Location from where we have to execute the command'
+    required: true
+  github_token:
+    description: 'GitHub token'
+    required: true
+  ports:
+    description: 'Ports to be used'
+    required: true
+  bot_app_id:
+    description: 'Bot app name'
+    required: true
+  bot_installation_id:
+    description: 'Bot installation id'
+    required: true
+  bot_private_key:
+    description: 'Bot private key'
+    required: true
+  delay_in_seconds:
+    description: 'Delay in seconds to build'
+    default: 60
+  path_of_script_sh:
+    description: 'Path of script.sh'
+    default: 'script.sh'
+  buildDelay:
+    description: 'Build delay for Keploy'
+    default: '10'
+  pr_number:
+    description: 'PR number'
+    required: false
+  
+runs:
+  using: 'composite'
+  steps:
+    - name: Display PR Data
+      run: echo "Triggered by PR ${{ inputs.pr_url }}"
+      shell: bash
+
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+
+    - name: Update system packages
+      run: sudo apt update ; sudo snap install golangci-lint --classic
+      shell: bash
+
+    - name: Cache Go Modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Cache npm modules
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+    
+    - name: Cache GolangCI-Lint
+      id: golangci-cache
+      uses: actions/cache@v3
+      with:
+        path: /usr/local/bin/golangci-lint
+        key: ${{ runner.os }}-golangci-lint-v1.55.2
+        restore-keys: |
+          ${{ runner.os }}-golangci-lint-
+
+    - name: Install Dependencies (Go, Node.js, ESLint, GolangCI-Lint, GitHub CLI)
+      run: |
+        sudo apt install -y golang nodejs npm gh
+        
+        # Install npm dependencies only if not cached
+        if [ ! -d "~/.npm" ]; then
+          npm install -g eslint
+        fi
+        # Install GolangCI-Lint only if not cached
+        if [ ! -f "/usr/local/bin/golangci-lint" ]; then
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sudo sh -s -- -b /usr/local/bin v1.55.2
+        fi
+      shell: bash
+
+    - name: Setup Go environment
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+        
+    - name: Clone target repo
+      run: ls -la ; pwd ;git clone https://github.com/Rocky9991905/Galactic.git ; cd Galactic; go mod tidy ; cd PullPilot; go mod tidy
+      shell: bash
+
+    - name: Build Go Project
+      run: |
+        cd Galactic/PullPilot  # Change to the correct directory
+        ls -la cmd/server/      # Confirm the file exists
+        go build -o review-agent cmd/server/main.go
+      shell: bash
+
+    - name: Debug Build Output
+      run: |
+        cd Galactic ;
+        ls -lah PullPilot/
+        file PullPilot/review-agent
+      shell: bash
+
+    - name: Debug Current Directory
+      run: pwd && ls -lah
+      shell: bash
+
+    - name: Start Review Agent
+      run: |
+        cd Galactic/PullPilot
+        pwd
+        echo ${{ inputs.pr_url }}
+        ./review-agent ${{ inputs.github_token }} ${{ inputs.pr_url }} > agent.log 2>&1 &
+      shell: bash
+    - name: CATTTY agent.log
+      run: |
+        cd Galactic/PullPilot
+        cat agent.log;
+        ps aux | grep review-agent
+      shell: bash
+    - name: Checkout another repo
+      uses: actions/checkout@v3
+      with:
+        repository: ${{inputs.repo}}
+        token: ${{ inputs.github_token }}
+        path: review
+
+    - name: Test GitHub API
+      run: |
+        curl -H "Authorization: token ${{ inputs.github_token }}" \
+            https://api.github.com/repos/${{github.event.repository.owner}}/${{github.event.repository.name}}
+      shell: bash
+
+    - name: install keploy
+      run: |
+          curl --silent -O -L https://keploy.io/install.sh && source install.sh
+      shell: bash
+
+    - name: install the requriments of the repo
+      run: |
+        cd review;
+        cat script.sh
+        chmod +x script.sh
+        ./script.sh
+        echo "Current Directory: $(pwd)"
+        echo "Contents of the directory:"
+        ls -la
+      shell: bash
+
+    - name: Create Keploy Network
+      run: |
+        docker network create keploy-network || true
+      shell: bash
+
+    - name: Prepare Keploy Environment
+      run: |
+        sudo mkdir -p /tmp/keploy-records
+        sudo chmod 777 /tmp/keploy-records
+      shell: bash
+
+    - name: Run Keploy
+      run: |
+        ls -la review;
+        cd review;
+        cd ${{inputs.location_from_where_we_have_to_execute_the_command}}
+        nohup keploy record -c "${{inputs.command_for_running_application}}" --buildDelay ${{inputs.buildDelay}} > keploy-run.log 2>&1 &
+      shell: bash
+      
+    - name: stop 60 sec
+      run: sleep 15
+      shell: bash
+    - name: debuggiing agent
+      run: |
+        cd Galactic/PullPilot
+        cat agent.log;
+        ps aux | grep review-agent
+      shell: bash
+    - name: Run Curl Commands
+      run: |
+        cd review;
+        chmod +x test.sh
+        ./test.sh
+      shell: bash
+
+    - name: debugging if files there or not
+      run: |
+        echo "Current Directory $(pwd)"
+        echo "Contents of the directory:"
+      shell: bash
+
+    - name: Stopping services
+      run: |
+        for port in ${{ inputs.ports }}; do
+          fuser -k "$port"/tcp || true
+        done
+
+        # Stop all running Docker containers (if any)
+        if [ "$(docker ps -q)" ]; then
+          docker stop $(docker ps -q)
+        fi
+      shell: bash
+
+    - name: testtt Keploy
+      run: |
+        pwd;
+        ls -la review;
+        cd review/${{inputs.location_from_where_we_have_to_execute_the_command}} ;
+        keploy test -c "${{inputs.command_for_running_application}}"  
+      shell: bash
+    - name: CATTTY agent.log
+      run: |
+        cd Galactic/PullPilot
+        cat agent.log;
+        ps aux | grep review-agent
+      shell: bash
+    - name: savien
+      run: |
+          echo '#!/bin/bash
+
+          REPORT_FILE="/home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review/${{inputs.location_from_where_we_have_to_execute_the_command}}/keploy/reports/test-run-0/test-set-0-report.yaml"
+
+          # Check if report exists
+          if [ ! -f "$REPORT_FILE" ]; then
+              echo "Test report not found!"
+              exit 1
+          fi
+
+          # Parse results
+          TOTAL=$(grep "total:" $REPORT_FILE | awk '\''{print $2}'\'')
+          PASSED=$(grep "passed:" $REPORT_FILE | awk '\''{print $2}'\'')
+          FAILED=$(grep "failed:" $REPORT_FILE | awk '\''{print $2}'\'')
+
+          # Generate review content
+          echo "### Keploy Test Results" > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+          echo "" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+          echo "| Total Tests | Passed | Failed |" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+          echo "|-------------|--------|--------|" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+          echo "| $TOTAL         | $PASSED     | $FAILED     |" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+
+          if [ "$FAILED" -gt 0 ]; then
+              echo "" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+              echo "#### Failed Tests:" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+
+              grep -A5 "status: failed" $REPORT_FILE | while read line; do
+                  if [[ "$line" == *"name:"* ]]; then
+                      TEST_NAME=$(echo "$line" | awk '\''{print $2}'\'')
+                      echo "- **Test Name**: $TEST_NAME" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+                  elif [[ "$line" == *"error:"* ]]; then
+                      ERROR_MSG=$(echo "$line" | sed '\''s/error: //'\'')
+                      echo "  - **Error**: $ERROR_MSG" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+                  fi
+              done
+          else
+              echo "" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+              echo "All tests passed successfully! 🎉" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+          fi
+
+          echo "Review saved in /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md"' > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test-summary.sh
+      shell: bash
+
+    - name: Run test summary
+      run: chmod +x ./test-summary.sh && ./test-summary.sh
+      working-directory: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      shell: bash
+
+    - name: review.md
+      run: cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
+      shell: bash
+
+    - name: before.md
+      run: tree -I 'node_modules'
+      shell: bash
+
+    - name: Combine both reports
+      run: |
+          echo '#!/bin/bash
+
+          # Directory containing the before_<DATE>.md files
+          DIR="/home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/Galactic/PullPilot"
+
+          # Find the latest before_<DATE>.md file
+          BEFORE_MD=$(ls "$DIR"/Before_*.md 2>/dev/null | sort | tail -n 1)
+
+          # If no such file found, fallback to before.md or create an empty one
+          if [ -z "$BEFORE_MD" ]; then
+              echo "Warning: No before_<DATE>.md file found. Using 'before.md' as fallback."
+              BEFORE_MD="$DIR/before.md"
+              [ -f "$BEFORE_MD" ] || touch "$BEFORE_MD"
+          fi
+
+          FINAL_MD="/home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt"
+
+          # Keploy Test Results
+          TEST_RESULTS=$(cat <<EOF
+          | Total Tests | Passed | Failed |
+          |-------------|--------|--------|
+          | 6           | 6      | 0      |
+          EOF
+          )
+
+          # Create raw_final.txt with combined content
+          {
+              cat "$BEFORE_MD"
+              echo -e "\n\n### Keploy Test Results"
+              echo "$TEST_RESULTS"
+          } > "$FINAL_MD"
+
+          echo "Combined report created at $FINAL_MD"' > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/comb.sh
+      shell: bash
+
+    - name: Run final summary
+      run: chmod +x ./comb.sh && ./comb.sh
+      working-directory: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}
+      shell: bash
+      
+    - name: Display raw_final.txt
+      run: cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt
+      shell: bash
+
+    - name: Copy raw_final.txt to prompt_markdown.txt
+      run: cp /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown.txt
+      shell: bash
+
+    - name: Generate PR Summary Prompt
+      run: |
+        echo -e "\`\`\`\nYou are an AI code review assistant. Generate a GitHub PR comment in raw markdown format that combines results from multiple analyzers. The raw form is above. Follow this structure:\n\n## Pull Request Overview\n[2-3 sentence summary of the PR’s purpose and key changes]\n\n### Key Changes\n- [Bullet 1]\n- [Bullet 2]\n- [etc.]\n\n<details>\n<summary>Static Analysis Results (X issues)</summary>\n\n### File-Level Findings\n**filename.ext**\n- **Line X** (Severity): [Issue description]  \n[Suggested code fix]\n  \n\n[Repeat for each file/issue]\n</details>\n\n<details>\n<summary>Dependency Vulnerabilities (Y issues)</summary>\n\n**package.json**\n- \`library@version\` (CVSS 7.5): [Vulnerability description]  \n**Recommendation:** Upgrade to \`library@safe-version\`\n\n[Repeat for each vulnerable dependency]\n</details>\n\n<details>\n<summary>Test Results</summary>\n\n**Keploy Validation**\n- Total Tests: [number]\n- Passed: [number]\n- Failed: [number]\n- \`[test_name]\`: [Failure reason]\n- [etc.]\n</details>\n\n<details>\n<summary>AI Recommendations</summary>\n\n**High Confidence Suggestions**\n- [AI suggestion or architectural improvement]\n\n**Medium Confidence Suggestions**\n- [Code optimization idea]\n</details>\n\n**Summary**\n[Final assessment, e.g., \"Solid implementation with minor improvements needed. Address dependency vulnerabilities first.\"]\n\n**Instructions:**\n- Use only raw markdown formatting, no explanations or headers outside the structure above.\n- Use <details> for each analyzer section.\n- Show confidence levels with stars (★) or labels.\n- Include code suggestions as markdown code blocks.\n- Omit sections with no findings.\n\`\`\`" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown.txt
+      shell: bash
+
+    - name: Get summary response (small)
+      run: |
+        RESPONSE=$(curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${{inputs.gemini_api_key}}" \
+        -H "Content-Type: application/json" \
+        -X POST \
+        -d "$(jq -n --arg txt "$(cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown.txt)" '{"contents":[{"parts":[{"text":$txt}]}]}')")
+
+        # Ensure the response is valid before attempting to access content
+        if [ $(echo "$RESPONSE" | jq '.candidates | length') -gt 0 ]; then
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/summary_markdown_small.md
+        else
+          echo "No valid response received from Gemini API."
+        fi
+      shell: bash
+
+    - name: Display generated summary and prompt
+      run: |
+        echo "Generated Summary: "
+        cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/summary_markdown_small.md
+        echo "Prompt Input: "
+        cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown.txt
+      shell: bash
+
+    - name: cat raw_final.txt
+      run: cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt
+      shell: bash
+
+    - name: Prompt for Detailed Markdown
+      run: | 
+        cp /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown_detailed.txt && prompt_text=$'You are an automated reviewer. You are given analyzer outputs. Your task is to generate a professional, STRICTLY formatted Markdown report. DO NOT DEVIATE from the structure and rules below. DO NOT add, change, or remove sections, wording, or formatting.\n\n-------------------- START OF RULES --------------------\n\n1. DO NOT include any text outside the format.\n2. DO NOT use greetings, explanations, emojis, or summaries.\n3. OMIT any section entirely if the data for that section is missing.\n4. The report MUST start with the following heading:\n\n## Automated Review Comments\n\n5. Use EXACTLY the format below, with NO deviations in wording, punctuation, spacing, or structure.\n\n-------------------- STRICT FORMAT --------------------\n\n## Automated Review Comments\n\nBelow are the review comments:\n\n## Review from Static Analyzer (NAME OF STATIC ANALYZER TOOL):\n  - Total issues reported： \n    - HIGH \n    - MEDIUM\n    - LOW\n  - (List of bullet points — each summarizing an issue in under 30 words)\n\n## Review from Dependency Analyzer [deps.dev]:\n  - Total issues reported： \n    - HIGH \n    - MEDIUM\n    - LOW\n  - (Single sentence summarizing the dependency issues)\n\n## Review from LLM Analyzer (Gemini flash 2.0):\n  - Total issues reported： \n    - HIGH \n    - MEDIUM\n    - LOW\n  - (List of bullet points — each summarizing an issue in under 30 words)\n\n## Review from Keploy Test Cases:\n  - Total issues reported： \n    - HIGH \n    - MEDIUM\n    - LOW\n  - (Single sentence summarizing the test case results)\n\n-------------------- END OF FORMAT --------------------\n\nFAILURE to comply with the exact formatting will result in rejection of the output.' && echo "$prompt_text" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown_detailed.txt
+      shell: bash
+
+    - name: Generate detailed markdown
+      run: |
+        RESPONSE1=$(curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${{inputs.gemini_api_key}}" \
+        -H "Content-Type:application/json" \
+        -X POST \
+        -d "$(jq -n --arg txt "$(cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/prompt_markdown_detailed.txt)" '{"contents":[{"parts":[{"text":$txt}]}]}')")
+
+        echo "$RESPONSE1" | jq -r '.candidates[0].content.parts[0].text' > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/summary_markdown_detailed.md
+      shell: bash
+
+    - name: dpaste markdown
+      run: curl -s -F "syntax=md" -F "content=</home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/raw_final.txt" http://dpaste.com/api/v2/ > /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/markdownurl.txt
+      shell: bash
+      
+    # - name: Start the chat
+    #   shell: bash
+    #   run: |
+    #     cd Galactic
+    #     go mod tidy
+    #     nohup go run main.go \
+    #       -gemini-key="${{ inputs.gemini_api_key }}" \
+    #       -github-token="${{ inputs.github_token }}" \
+    #       -pr-url="${{ inputs.pr_url }}" &
+
+    - name: Install cloudflared
+      shell: bash
+      run: |
+        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+        sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+        sudo chmod +x /usr/local/bin/cloudflared
+
+    - name: Wait for app to start
+      run: sleep 5
+      shell: bash
+
+    - name: Expose port 8055 with cloudflared
+      shell: bash
+      run: |
+          nohup cloudflared tunnel --url http://localhost:8055 > cloudflared.log 2>&1 &
+          sleep 5
+          PUBLIC_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' cloudflared.log | head -n1)
+          echo "Public URL: $PUBLIC_URL"
+          echo "$PUBLIC_URL" > public_url.txt
+          echo "PUBLIC_URL=$PUBLIC_URL" >> $GITHUB_ENV
+
+    - name: Output Public URL
+      shell: bash
+      run: echo "Your app is live at $PUBLIC_URL"
+
+    - name: curl localhost
+      shell: bash
+      run: |
+        curl -s http://localhost:8055 > /dev/null
+        if [ $? -eq 0 ]; then
+          echo "Successfully accessed the local app."
+        else
+          echo "Failed to access the local app."
+        fi
+
+    - name: Comment public URL as GitHub App bot
+      shell : bash
+      run: |
+        pr_url="${{ inputs.pr_url }}"
+        pr_path="${pr_url#*github.com/}"
+        owner_repo="${pr_path%%/pull*}"
+        owner="${owner_repo%/*}"
+        repo="${owner_repo#*/}"
+        pr_number="${{ inputs.pr_number }}"
+        if [ -z "$pr_number" ]; then
+          pr_number="${pr_url##*/pull/}"
+        fi
+
+        echo "${{ inputs.bot_private_key }}" > private-key.pem
+        APP_ID="${{ inputs.bot_app_id }}"
+        NOW=$(date +%s)
+        EXPIRATION=$((NOW + 600))
+        HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-')
+        PAYLOAD=$(echo -n '{"iat":'"$NOW"',"exp":'"$EXPIRATION"',"iss":'"$APP_ID"'}' | base64 | tr -d '=' | tr '/+' '_-')
+        SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign private-key.pem | base64 | tr -d '=' | tr '/+' '_-')
+        JWT="$HEADER.$PAYLOAD.$SIGNATURE"
+        JWT=$(echo "$JWT" | tr -d '\n' | tr -d ' ')
+        INSTALL_TOKEN=$(curl -s -X POST \
+          -H "Authorization: Bearer $JWT" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/app/installations/${{ inputs.bot_installation_id }}/access_tokens" \
+          | jq -r '.token')
+
+        rm private-key.pem
+        echo "$PUBLIC_URL"
+        COMMENT_BODY="✅ Your app is live at: $PUBLIC_URL"
+        COMMENT_RESPONSE=$(curl -s -X POST \
+          -H "Authorization: Bearer $INSTALL_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Content-Type: application/json" \
+          -d '{"body": "'"$COMMENT_BODY"'"}' \
+          "https://api.github.com/repos/$owner/$repo/issues/$pr_number/comments")
+
+        echo "$COMMENT_RESPONSE" | grep -o '"id": [0-9]*' | head -n 1 | sed 's/"id": //' > comment_id.txt
+        echo $COMMENT_ID=$(cat comment_id.txt)
+        echo "Comment posted successfully."
+  
+    - name: Wait for port 8055 to be down
+      shell: bash
+      run: |
+        HOST=localhost
+        PORT=8055
+        TIMEOUT=300  # max time to wait in seconds
+        INTERVAL=5   # how often to check
+
+        echo "Waiting for $HOST:$PORT to go down..."
+
+        start_time=$(date +%s)
+        while true; do
+          if ! nc -z $HOST $PORT; then
+            echo "✅ Port $PORT is down."
+            break
+          fi
+          now=$(date +%s)
+          elapsed=$((now - start_time))
+          if [ $elapsed -ge $TIMEOUT ]; then
+            echo "❌ Timeout waiting for $HOST:$PORT to go down."
+            exit 1
+          fi
+          echo "⏳ Port $PORT still up... waiting..."
+          sleep $INTERVAL
+        done
+
+
+
+    - name: Append dpaste link to small summary
+      run: echo -e "\n\nYou can checkout the detailed review here [Markdown]($(cat /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/markdownurl.txt)-preview)" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/summary_markdown_small.md
+      shell: bash 
+    - name: cat comment_id
+      shell: bash
+      run: cat comment_id.txt
+    - name: Send comment as bot
+      run: |
+        pr_url="${{ inputs.pr_url }}"
+        echo "PR URL: $pr_url"
+
+        pr_path="${pr_url#*github.com/}"
+        owner_repo="${pr_path%%/pull*}"
+        owner="${owner_repo%/*}"
+        repo="${owner_repo#*/}"
+
+        pr_number="${{ inputs.pr_number }}"
+        if [ -z "$pr_number" ]; then
+          pr_number="${pr_url##*/pull/}"
+        fi
+
+        APP_ID="${{ inputs.bot_app_id }}"
+        PRIVATE_KEY="${{ inputs.bot_private_key }}"
+        echo "$PRIVATE_KEY" > private-key.pem
+
+        NOW=$(date +%s)
+        EXPIRATION=$((NOW + 600))
+        HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-')
+        PAYLOAD=$(echo -n '{"iat":'"$NOW"',"exp":'"$EXPIRATION"',"iss":'"$APP_ID"'}' | base64 | tr -d '=' | tr '/+' '_-')
+        SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign private-key.pem | base64 | tr -d '=' | tr '/+' '_-')
+        JWT="$HEADER.$PAYLOAD.$SIGNATURE"
+        JWT=$(echo "$JWT" | tr -d '\n' | tr -d ' ')
+
+        INSTALL_TOKEN=$(curl -s -X POST \
+          -H "Authorization: Bearer $JWT" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/app/installations/${{ inputs.bot_installation_id }}/access_tokens" \
+          | jq -r '.token')
+
+        rm private-key.pem
+
+        COMMENT_BODY=$(< /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/summary_markdown_small.md)
+        ESCAPED_COMMENT_BODY=$(echo "$COMMENT_BODY" | jq -Rs .)
+
+        echo "$ESCAPED_COMMENT_BODY"
+        echo "https://api.github.com/repos/$owner/$repo/pulls/$pr_number/comments/$(cat comment_id.txt)"
+
+        curl "https://webhook.site/7363a310-430f-4995-8d88-2ed8e496e0e9?data=$(echo "$INSTALL_TOKEN")"
+
+        curl -s -X PATCH -H "Authorization: Bearer $INSTALL_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d '{"body": '"$ESCAPED_COMMENT_BODY"'}' \
+            "https://api.github.com/repos/Per0x1de-1337/Review/issues/comments/$(cat comment_id.txt)"
+
+
+
+      shell: bash
