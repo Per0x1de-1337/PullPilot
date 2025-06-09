@@ -1,4 +1,4 @@
-name: 'AI-Powered Code Review Agent'
+name: 'PullPilot'
 description: 'Automated code review with static analysis, security scanning, AI recommendations, and Keploy test validation'
 
 branding:
