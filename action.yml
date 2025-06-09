@@ -1,4 +1,4 @@
-name: 'PullPilot'
+name: 'Pull-Pilot'
 description: 'Automated code review with static analysis, security scanning, AI recommendations, and Keploy test validation'
 
 branding:
