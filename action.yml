@@ -1,4 +1,4 @@
-name: 'Repo-Pilot'
+name: 'RepoPilot'
 description: 'Automated code review with static analysis, security scanning, AI recommendations, and Keploy test validation'
 
 branding:
@@ -109,19 +109,19 @@ runs:
         go-version: '1.20'
         
     - name: Clone target repo
-      run: ls -la ; pwd ;git clone https://github.com/Rocky9991905/Galactic.git ; cd Galactic; go mod tidy ; cd PullPilot; go mod tidy
+      run: ls -la ; pwd ;git clone https://github.com/Per0x1de-1337/PullPilot.git ; cd PullPilot; go mod tidy ; cd PullPilot; go mod tidy
       shell: bash
 
     - name: Build Go Project
       run: |
-        cd Galactic/PullPilot  # Change to the correct directory
+        cd PullPilot/PullPilot  # Change to the correct directory
         ls -la cmd/server/      # Confirm the file exists
         go build -o review-agent cmd/server/main.go
       shell: bash
 
     - name: Debug Build Output
       run: |
-        cd Galactic ;
+        cd PullPilot ;
         ls -lah PullPilot/
         file PullPilot/review-agent
       shell: bash
@@ -132,14 +132,14 @@ runs:
 
     - name: Start Review Agent
       run: |
-        cd Galactic/PullPilot
+        cd PullPilot/PullPilot
         pwd
         echo ${{ inputs.pr_url }}
         ./review-agent ${{ inputs.github_token }} ${{ inputs.pr_url }} > agent.log 2>&1 &
       shell: bash
     - name: CATTTY agent.log
       run: |
-        cd Galactic/PullPilot
+        cd PullPilot/PullPilot
         cat agent.log;
         ps aux | grep review-agent
       shell: bash
@@ -196,7 +196,7 @@ runs:
       shell: bash
     - name: debuggiing agent
       run: |
-        cd Galactic/PullPilot
+        cd PullPilot/PullPilot
         cat agent.log;
         ps aux | grep review-agent
       shell: bash
@@ -234,7 +234,7 @@ runs:
       shell: bash
     - name: CATTTY agent.log
       run: |
-        cd Galactic/PullPilot
+        cd PullPilot/PullPilot
         cat agent.log;
         ps aux | grep review-agent
       shell: bash
@@ -275,7 +275,7 @@ runs:
                       echo "  - **Error**: $ERROR_MSG" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
                   fi
               done
-          else
+          else  
               echo "" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
               echo "All tests passed successfully! 🎉" >> /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/review.md
           fi
@@ -301,7 +301,7 @@ runs:
           echo '#!/bin/bash
 
           # Directory containing the before_<DATE>.md files
-          DIR="/home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/Galactic/PullPilot"
+          DIR="/home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/PullPilot/PullPilot"
 
           # Find the latest before_<DATE>.md file
           BEFORE_MD=$(ls "$DIR"/Before_*.md 2>/dev/null | sort | tail -n 1)
@@ -400,7 +400,7 @@ runs:
     # - name: Start the chat
     #   shell: bash
     #   run: |
-    #     cd Galactic
+    #     cd PullPilot
     #     go mod tidy
     #     nohup go run main.go \
     #       -gemini-key="${{ inputs.gemini_api_key }}" \
